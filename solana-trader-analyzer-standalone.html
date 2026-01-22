@@ -342,6 +342,12 @@
             box-shadow: 0 0 0 3px rgba(153, 69, 255, 0.1);
         }
 
+        .settings-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
         @media (max-width: 768px) {
             .wallet-header {
                 flex-direction: column;
@@ -356,6 +362,10 @@
                 flex: 1;
                 justify-content: center;
             }
+
+            .settings-row {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -363,7 +373,7 @@
     <div class="container">
         <div class="header">
             <h1>🔍 Solana Token Trader Analyzer</h1>
-            <p>Find wallets that have traded 2 or more of your tokens</p>
+            <p>Find common wallets that have traded 2 or more tokens</p>
         </div>
 
         <div class="content">
@@ -372,7 +382,7 @@
 
             <div class="input-section">
                 <div class="info">
-                    💡 Enter at least 2 token contract addresses to start the analysis
+                    💡 Enter at least 2 token contract addresses to start the analysis. Remember to add your custom RPC
                 </div>
 
                 <div class="input-group">
@@ -390,9 +400,19 @@
                     <button class="btn btn-secondary" onclick="addTokenInput()" style="margin-top: 10px;">+ Add Token</button>
                 </div>
 
-                <div class="input-group">
-                    <label>Maximum transactions to analyze per token</label>
-                    <input type="number" id="maxTransactions" value="100" min="10" max="1000">
+                <div class="settings-row">
+                    <div class="input-group">
+                        <label>Maximum transactions to analyze per token</label>
+                        <input type="number" id="maxTransactions" value="100" min="10" max="10000">
+                    </div>
+
+                    <div class="input-group">
+                        <label>Requests per second (lower = slower, higher = faster )</label>
+                        <input type="number" id="requestsPerSecond" value="5" min="1" max="20" step="1">
+                        <small style="color: #666; font-size: 12px; display: block; margin-top: 4px;">
+                            Recommended: 5 for free RPC, 10-15 for paid RPC
+                        </small>
+                    </div>
                 </div>
 
                 <button class="btn btn-primary" onclick="analyzeTokens()" id="analyzeBtn">
@@ -430,8 +450,23 @@
     </div>
 
     <script>
-        const RPC_URL = 'https://api.mainnet-beta.solana.com'; // Public Solana RPC
-        let tokenAddressesGlobal = []; // Store token addresses for display
+        const RPC_URL = 'your RPC goes here';
+        let tokenAddressesGlobal = [];
+        let lastRequestTime = 0;
+        let requestsPerSecond = 5; // Default value
+
+        // Rate limiting function
+        async function waitForRateLimit() {
+            const now = Date.now();
+            const timeSinceLastRequest = now - lastRequestTime;
+            const minDelay = 1000 / requestsPerSecond; // milliseconds between requests
+            
+            if (timeSinceLastRequest < minDelay) {
+                await new Promise(resolve => setTimeout(resolve, minDelay - timeSinceLastRequest));
+            }
+            
+            lastRequestTime = Date.now();
+        }
 
         function addTokenInput() {
             const container = document.getElementById('tokenInputs');
@@ -484,7 +519,7 @@
         }
 
         function openCielo(address) {
-            window.open(`https://app.cielo.finance/?wallet=${address}`, '_blank');
+            window.open(`https://app.cielo.finance/profile/${address}`, '_blank');
         }
 
         async function analyzeTokens() {
@@ -498,8 +533,9 @@
                 return;
             }
 
-            tokenAddressesGlobal = tokenAddresses; // Store for later use
+            tokenAddressesGlobal = tokenAddresses;
             const maxTx = parseInt(document.getElementById('maxTransactions').value) || 100;
+            requestsPerSecond = parseInt(document.getElementById('requestsPerSecond').value) || 5;
 
             // Show loading
             document.getElementById('analyzeBtn').disabled = true;
@@ -507,13 +543,13 @@
             document.getElementById('results').style.display = 'none';
 
             try {
-                const walletTokenMap = new Map(); // wallet -> Set of tokens traded
+                const walletTokenMap = new Map();
                 let totalTransactions = 0;
 
                 for (let i = 0; i < tokenAddresses.length; i++) {
                     const tokenAddress = tokenAddresses[i];
                     document.getElementById('loadingText').textContent = 
-                        `Analyzing token ${i + 1}/${tokenAddresses.length}: ${tokenAddress.substring(0, 8)}...`;
+                        `Analyzing token ${i + 1}/${tokenAddresses.length}: ${tokenAddress.substring(0, 8)}... (${requestsPerSecond} req/sec)`;
 
                     const signatures = await getTokenTransactions(tokenAddress, maxTx);
                     totalTransactions += signatures.length;
@@ -551,6 +587,8 @@
 
         async function getTokenTransactions(tokenAddress, limit) {
             try {
+                await waitForRateLimit();
+                
                 const response = await fetch(RPC_URL, {
                     method: 'POST',
                     headers: {
@@ -582,28 +620,27 @@
 
         async function extractTraders(signatures, tokenAddress) {
             const traders = new Set();
-            const batchSize = 10;
 
-            for (let i = 0; i < signatures.length; i += batchSize) {
-                const batch = signatures.slice(i, i + batchSize);
-                const txPromises = batch.map(sig => getTransactionDetails(sig.signature));
-                const transactions = await Promise.all(txPromises);
+            // Process each signature sequentially to respect rate limiting
+            for (let i = 0; i < signatures.length; i++) {
+                const sig = signatures[i];
+                const tx = await getTransactionDetails(sig.signature);
 
-                transactions.forEach(tx => {
-                    if (tx && tx.transaction && tx.transaction.message) {
-                        const accountKeys = tx.transaction.message.accountKeys;
-                        if (accountKeys && accountKeys.length > 0) {
-                            // First account is usually the fee payer/signer
-                            const wallet = accountKeys[0];
-                            if (wallet) {
-                                traders.add(wallet);
-                            }
+                if (tx && tx.transaction && tx.transaction.message) {
+                    const accountKeys = tx.transaction.message.accountKeys;
+                    if (accountKeys && accountKeys.length > 0) {
+                        const wallet = accountKeys[0];
+                        if (wallet) {
+                            traders.add(wallet);
                         }
                     }
-                });
+                }
 
-                // Small delay to avoid rate limiting
-                await new Promise(resolve => setTimeout(resolve, 100));
+                // Update loading text with progress
+                if (i % 10 === 0) {
+                    document.getElementById('loadingText').textContent = 
+                        `Processing transactions: ${i + 1}/${signatures.length}...`;
+                }
             }
 
             return Array.from(traders);
@@ -611,6 +648,8 @@
 
         async function getTransactionDetails(signature) {
             try {
+                await waitForRateLimit();
+                
                 const response = await fetch(RPC_URL, {
                     method: 'POST',
                     headers: {
