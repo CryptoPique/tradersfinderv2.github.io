@@ -373,7 +373,7 @@
     <div class="container">
         <div class="header">
             <h1>🔍 Solana Token Trader Analyzer</h1>
-            <p>Find common wallets that have traded 2 or more tokens</p>
+            <p>Find wallets that have traded 2 or more of your tokens</p>
         </div>
 
         <div class="content">
@@ -382,7 +382,7 @@
 
             <div class="input-section">
                 <div class="info">
-                    💡 Enter at least 2 token contract addresses to start the analysis. Remember to add your custom RPC
+                    💡 Enter at least 2 token contract addresses to start the analysis
                 </div>
 
                 <div class="input-group">
@@ -407,7 +407,7 @@
                     </div>
 
                     <div class="input-group">
-                        <label>Requests per second (lower = slower, higher = faster )</label>
+                        <label>Requests per second (lower = safer, higher = faster)</label>
                         <input type="number" id="requestsPerSecond" value="5" min="1" max="20" step="1">
                         <small style="color: #666; font-size: 12px; display: block; margin-top: 4px;">
                             Recommended: 5 for free RPC, 10-15 for paid RPC
@@ -442,7 +442,20 @@
                 </div>
 
                 <div class="wallet-list">
-                    <h2>Wallets that traded 2+ tokens</h2>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+                        <h2 style="margin: 0;">Wallets that traded 2+ tokens</h2>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-secondary" onclick="filterWallets('all')" id="filterAll" style="padding: 8px 16px; background: #9945FF; color: white;">
+                                All
+                            </button>
+                            <button class="btn btn-secondary" onclick="filterWallets('active')" id="filterActive" style="padding: 8px 16px;">
+                                🟢 Active
+                            </button>
+                            <button class="btn btn-secondary" onclick="filterWallets('inactive')" id="filterInactive" style="padding: 8px 16px;">
+                                🔴 Inactive
+                            </button>
+                        </div>
+                    </div>
                     <div id="walletResults"></div>
                 </div>
             </div>
@@ -450,10 +463,89 @@
     </div>
 
     <script>
-        const RPC_URL = 'your RPC goes here';
+        const RPC_URL = 'https... your RPC go here';
         let tokenAddressesGlobal = [];
+        let allWalletsGlobal = []; // Store all wallets for filtering
         let lastRequestTime = 0;
         let requestsPerSecond = 5; // Default value
+
+        // Filter wallets by status
+        function filterWallets(filter) {
+            // Update button styles
+            document.getElementById('filterAll').style.background = filter === 'all' ? '#9945FF' : '#f0f0f0';
+            document.getElementById('filterAll').style.color = filter === 'all' ? 'white' : '#333';
+            document.getElementById('filterActive').style.background = filter === 'active' ? '#26de81' : '#f0f0f0';
+            document.getElementById('filterActive').style.color = filter === 'active' ? 'white' : '#333';
+            document.getElementById('filterInactive').style.background = filter === 'inactive' ? '#ff4757' : '#f0f0f0';
+            document.getElementById('filterInactive').style.color = filter === 'inactive' ? 'white' : '#333';
+
+            let filteredWallets = allWalletsGlobal;
+
+            if (filter === 'active') {
+                filteredWallets = allWalletsGlobal.filter(w => w.balance !== null && w.balance > 0);
+            } else if (filter === 'inactive') {
+                filteredWallets = allWalletsGlobal.filter(w => w.balance === null || w.balance === 0);
+            }
+
+            // Update wallet count display
+            document.getElementById('walletCount').textContent = filteredWallets.length;
+
+            // Re-render results
+            renderWalletResults(filteredWallets);
+        }
+
+        // Separate function to render wallet results
+        function renderWalletResults(wallets) {
+            const walletResults = document.getElementById('walletResults');
+            
+            if (wallets.length === 0) {
+                walletResults.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">No wallets found with current filter</p>';
+                return;
+            }
+
+            walletResults.innerHTML = wallets.map(wallet => {
+                const balanceDisplay = wallet.balance !== null 
+                    ? wallet.balance.toFixed(4) 
+                    : 'N/A';
+                
+                const isActive = wallet.balance !== null && wallet.balance > 0;
+                const statusColor = isActive ? '#26de81' : '#ff4757';
+                const statusText = isActive ? 'Active' : 'Inactive';
+                const statusIcon = isActive ? '🟢' : '🔴';
+                
+                return `
+                <div class="wallet-item">
+                    <div class="wallet-header">
+                        <div class="wallet-address">${wallet.address}</div>
+                        <div class="wallet-actions">
+                            <button class="btn btn-icon btn-copy" onclick="copyToClipboard('${wallet.address}')">
+                                📋 Copy
+                            </button>
+                            <button class="btn btn-icon btn-solscan" onclick="openSolscan('${wallet.address}')">
+                                🔍 Solscan
+                            </button>
+                            <button class="btn btn-icon btn-cielo" onclick="openCielo('${wallet.address}')">
+                                💎 Cielo
+                            </button>
+                            <div class="wallet-count">${wallet.tokenCount} tokens</div>
+                        </div>
+                    </div>
+                    <div class="wallet-tokens">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <div>
+                                <span style="font-size: 12px; color: #666; font-weight: 600;">Balance:</span>
+                                <span style="font-size: 14px; font-weight: bold; color: #333; margin-left: 6px;">${balanceDisplay} SOL</span>
+                                <span style="font-size: 11px; color: ${statusColor}; margin-left: 8px; font-weight: 600;">${statusIcon} ${statusText}</span>
+                            </div>
+                        </div>
+                        <div class="wallet-tokens-label">Traded tokens:</div>
+                        ${wallet.tokens.map(token => `
+                            <span class="token-tag">${token.substring(0, 8)}...${token.substring(token.length - 6)}</span>
+                        `).join('')}
+                    </div>
+                </div>
+            `}).join('');
+        }
 
         // Rate limiting function
         async function waitForRateLimit() {
@@ -519,7 +611,41 @@
         }
 
         function openCielo(address) {
-            window.open(`https://app.cielo.finance/profile/${address}`, '_blank');
+            window.open(`https://app.cielo.finance/profile/?wallet=${address}`, '_blank');
+        }
+
+        async function getWalletBalance(walletAddress) {
+            try {
+                await waitForRateLimit();
+                
+                const response = await fetch(RPC_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 1,
+                        method: 'getBalance',
+                        params: [walletAddress]
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.error) {
+                    console.error('Error fetching balance:', data.error);
+                    return null;
+                }
+
+                // Convert lamports to SOL (1 SOL = 1,000,000,000 lamports)
+                const lamports = data.result?.value || 0;
+                const sol = lamports / 1_000_000_000;
+                return sol;
+            } catch (error) {
+                console.error('Error fetching wallet balance:', error);
+                return null;
+            }
         }
 
         async function analyzeTokens() {
@@ -570,9 +696,25 @@
                     .map(([wallet, tokens]) => ({
                         address: wallet,
                         tokenCount: tokens.size,
-                        tokens: Array.from(tokens)
+                        tokens: Array.from(tokens),
+                        balance: null // Will be fetched
                     }))
                     .sort((a, b) => b.tokenCount - a.tokenCount);
+
+                // Fetch balances for all common wallets
+                document.getElementById('loadingText').textContent = 
+                    `Fetching wallet balances for ${commonWallets.length} wallets...`;
+
+                for (let i = 0; i < commonWallets.length; i++) {
+                    const wallet = commonWallets[i];
+                    wallet.balance = await getWalletBalance(wallet.address);
+                    
+                    // Update progress
+                    if (i % 5 === 0 || i === commonWallets.length - 1) {
+                        document.getElementById('loadingText').textContent = 
+                            `Fetching balances: ${i + 1}/${commonWallets.length}...`;
+                    }
+                }
 
                 displayResults(tokenAddresses.length, totalTransactions, commonWallets);
 
@@ -587,31 +729,93 @@
 
         async function getTokenTransactions(tokenAddress, limit) {
             try {
-                await waitForRateLimit();
-                
-                const response = await fetch(RPC_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        jsonrpc: '2.0',
-                        id: 1,
-                        method: 'getSignaturesForAddress',
-                        params: [
-                            tokenAddress,
-                            { limit: limit }
-                        ]
-                    })
-                });
+                const maxPerRequest = 1000; // Helius/Solana RPC limit
+                let allSignatures = [];
+                let lastSignature = null;
 
-                const data = await response.json();
-                
-                if (data.error) {
-                    throw new Error(data.error.message);
+                // If limit <= 1000, make single request
+                if (limit <= maxPerRequest) {
+                    await waitForRateLimit();
+                    
+                    const response = await fetch(RPC_URL, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            jsonrpc: '2.0',
+                            id: 1,
+                            method: 'getSignaturesForAddress',
+                            params: [
+                                tokenAddress,
+                                { limit: limit }
+                            ]
+                        })
+                    });
+
+                    const data = await response.json();
+                    
+                    if (data.error) {
+                        throw new Error(data.error.message);
+                    }
+
+                    return data.result || [];
                 }
 
-                return data.result || [];
+                // If limit > 1000, make multiple paginated requests
+                let remaining = limit;
+                
+                while (remaining > 0 && (allSignatures.length < limit)) {
+                    const batchLimit = Math.min(remaining, maxPerRequest);
+                    
+                    await waitForRateLimit();
+                    
+                    const params = lastSignature 
+                        ? [tokenAddress, { limit: batchLimit, before: lastSignature }]
+                        : [tokenAddress, { limit: batchLimit }];
+                    
+                    const response = await fetch(RPC_URL, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            jsonrpc: '2.0',
+                            id: 1,
+                            method: 'getSignaturesForAddress',
+                            params: params
+                        })
+                    });
+
+                    const data = await response.json();
+                    
+                    if (data.error) {
+                        console.error('Error in batch request:', data.error);
+                        break;
+                    }
+
+                    const signatures = data.result || [];
+                    
+                    if (signatures.length === 0) {
+                        break; // No more signatures available
+                    }
+
+                    allSignatures = allSignatures.concat(signatures);
+                    lastSignature = signatures[signatures.length - 1].signature;
+                    remaining -= signatures.length;
+
+                    // Update loading text with pagination progress
+                    document.getElementById('loadingText').textContent = 
+                        `Fetching signatures: ${allSignatures.length}/${limit}...`;
+
+                    // If we got less than requested, we've reached the end
+                    if (signatures.length < batchLimit) {
+                        break;
+                    }
+                }
+
+                return allSignatures.slice(0, limit);
+                
             } catch (error) {
                 console.error('Error fetching transactions:', error);
                 return [];
@@ -682,37 +886,11 @@
             document.getElementById('txCount').textContent = txCount;
             document.getElementById('walletCount').textContent = wallets.length;
 
-            const walletResults = document.getElementById('walletResults');
-            
-            if (wallets.length === 0) {
-                walletResults.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">No common wallets found</p>';
-            } else {
-                walletResults.innerHTML = wallets.map(wallet => `
-                    <div class="wallet-item">
-                        <div class="wallet-header">
-                            <div class="wallet-address">${wallet.address}</div>
-                            <div class="wallet-actions">
-                                <button class="btn btn-icon btn-copy" onclick="copyToClipboard('${wallet.address}')">
-                                    📋 Copy
-                                </button>
-                                <button class="btn btn-icon btn-solscan" onclick="openSolscan('${wallet.address}')">
-                                    🔍 Solscan
-                                </button>
-                                <button class="btn btn-icon btn-cielo" onclick="openCielo('${wallet.address}')">
-                                    💎 Cielo
-                                </button>
-                                <div class="wallet-count">${wallet.tokenCount} tokens</div>
-                            </div>
-                        </div>
-                        <div class="wallet-tokens">
-                            <div class="wallet-tokens-label">Traded tokens:</div>
-                            ${wallet.tokens.map(token => `
-                                <span class="token-tag">${token.substring(0, 8)}...${token.substring(token.length - 6)}</span>
-                            `).join('')}
-                        </div>
-                    </div>
-                `).join('');
-            }
+            // Store wallets globally for filtering
+            allWalletsGlobal = wallets;
+
+            // Render all wallets initially
+            renderWalletResults(wallets);
 
             document.getElementById('results').style.display = 'block';
         }
