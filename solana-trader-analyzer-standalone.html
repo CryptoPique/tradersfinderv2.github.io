@@ -81,12 +81,23 @@
             border-radius: 8px;
             font-size: 14px;
             transition: all 0.3s;
+            font-family: monospace;
         }
 
         input[type="text"]:focus {
             outline: none;
             border-color: #9945FF;
             box-shadow: 0 0 0 3px rgba(153, 69, 255, 0.1);
+        }
+
+        input[type="text"]#customRPC {
+            font-family: monospace;
+            font-size: 13px;
+        }
+
+        input[type="text"]#customRPC::placeholder {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 14px;
         }
 
         .btn {
@@ -170,6 +181,15 @@
 
         .btn-cielo:hover {
             background: #ff8c00;
+        }
+
+        .btn-export {
+            background: #20bf6b;
+            color: white;
+        }
+
+        .btn-export:hover {
+            background: #26de81;
         }
 
         .loading {
@@ -367,6 +387,87 @@
                 grid-template-columns: 1fr;
             }
         }
+
+        /* Export Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 10% auto;
+            padding: 30px;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            animation: slideIn 0.3s;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            color: #333;
+        }
+
+        .close {
+            font-size: 28px;
+            font-weight: bold;
+            color: #aaa;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .close:hover {
+            color: #333;
+        }
+
+        .export-option {
+            margin-bottom: 15px;
+        }
+
+        .export-option label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+        }
+
+        .export-option input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -383,6 +484,14 @@
             <div class="input-section">
                 <div class="info">
                     💡 Enter at least 2 token contract addresses to start the analysis
+                </div>
+
+                <div class="input-group">
+                    <label>Custom RPC Endpoint (get one for free on Helius.dev)</label>
+                    <input type="text" id="customRPC" placeholder="e.g., https://mainnet.helius-rpc.com/?api-key=YOUR_KEY" style="width: 100%; margin-bottom: 4px;">
+                    <small style="color: #666; font-size: 12px; display: block;">
+                        * Not optional. Add your own RPC to use the tool.
+                    </small>
                 </div>
 
                 <div class="input-group">
@@ -444,7 +553,7 @@
                 <div class="wallet-list">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
                         <h2 style="margin: 0;">Wallets that traded 2+ tokens</h2>
-                        <div style="display: flex; gap: 8px;">
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                             <button class="btn btn-secondary" onclick="filterWallets('all')" id="filterAll" style="padding: 8px 16px; background: #9945FF; color: white;">
                                 All
                             </button>
@@ -454,6 +563,9 @@
                             <button class="btn btn-secondary" onclick="filterWallets('inactive')" id="filterInactive" style="padding: 8px 16px;">
                                 🔴 Inactive
                             </button>
+                            <button class="btn btn-export" onclick="exportWallets()" style="padding: 8px 16px; margin-left: 8px;">
+                                📥 Export JSON
+                            </button>
                         </div>
                     </div>
                     <div id="walletResults"></div>
@@ -462,12 +574,114 @@
         </div>
     </div>
 
+    <!-- Export Modal -->
+    <div id="exportModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>📥 Export Wallets</h3>
+                <span class="close" onclick="closeExportModal()">&times;</span>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <div class="export-option">
+                    <label>
+                        <input type="checkbox" id="exportActiveOnly" checked>
+                        <span>Export only active wallets (with balance > 0)</span>
+                    </label>
+                </div>
+                <p style="color: #666; font-size: 14px; margin-top: 15px;">
+                    Export format is compatible with Padre, Axiom, and Photon.
+                </p>
+            </div>
+
+            <div style="display: flex; gap: 10px;">
+                <button class="btn btn-primary" onclick="confirmExport()" style="flex: 1;">
+                    Export
+                </button>
+                <button class="btn btn-secondary" onclick="closeExportModal()" style="flex: 1;">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
-        const RPC_URL = 'https... your RPC go here';
+        let DEFAULT_RPC_URL = '';
         let tokenAddressesGlobal = [];
         let allWalletsGlobal = []; // Store all wallets for filtering
         let lastRequestTime = 0;
         let requestsPerSecond = 5; // Default value
+
+        // Get current RPC URL (custom or default)
+        function getRPCUrl() {
+            const customRPC = document.getElementById('customRPC').value.trim();
+            return customRPC.length > 0 ? customRPC : DEFAULT_RPC_URL;
+        }
+
+        // Export wallets to JSON format for Padre/Axiom/Photon
+        function exportWallets() {
+            if (allWalletsGlobal.length === 0) {
+                showError('No wallets to export');
+                return;
+            }
+            
+            // Open export modal
+            document.getElementById('exportModal').style.display = 'block';
+        }
+
+        function closeExportModal() {
+            document.getElementById('exportModal').style.display = 'none';
+        }
+
+        function confirmExport() {
+            const exportActiveOnly = document.getElementById('exportActiveOnly').checked;
+
+            // Filter wallets based on active option
+            let walletsToExport = allWalletsGlobal;
+            
+            if (exportActiveOnly) {
+                walletsToExport = walletsToExport.filter(w => w.balance !== null && w.balance > 0);
+            }
+
+            if (walletsToExport.length === 0) {
+                showError('No wallets match export criteria');
+                closeExportModal();
+                return;
+            }
+
+            // Convert to Padre/Axiom/Photon base format
+            const exportData = walletsToExport.map((wallet, index) => ({
+                trackedWalletAddress: wallet.address,
+                name: `Wallet${index + 1}`,
+                emoji: String((index + 1) % 100), // Max 2 digits
+                alertsOn: false
+            }));
+
+            // Create JSON string
+            const jsonString = JSON.stringify(exportData, null, 2);
+
+            // Create blob and download
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `solana-wallets-${Date.now()}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            showSuccess(`✓ Exported ${walletsToExport.length} wallets to JSON`);
+            closeExportModal();
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('exportModal');
+            if (event.target === modal) {
+                closeExportModal();
+            }
+        }
 
         // Filter wallets by status
         function filterWallets(filter) {
@@ -618,7 +832,7 @@
             try {
                 await waitForRateLimit();
                 
-                const response = await fetch(RPC_URL, {
+                const response = await fetch(getRPCUrl(), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -663,10 +877,17 @@
             const maxTx = parseInt(document.getElementById('maxTransactions').value) || 100;
             requestsPerSecond = parseInt(document.getElementById('requestsPerSecond').value) || 5;
 
+            // Get RPC info for display
+            const rpcUrl = getRPCUrl();
+            const isCustomRPC = document.getElementById('customRPC').value.trim().length > 0;
+            const rpcDisplay = isCustomRPC ? 'Custom RPC' : 'Default RPC';
+
             // Show loading
             document.getElementById('analyzeBtn').disabled = true;
             document.getElementById('loading').style.display = 'block';
             document.getElementById('results').style.display = 'none';
+
+            console.log(`🚀 Starting analysis with ${rpcDisplay}: ${rpcUrl.substring(0, 50)}...`);
 
             try {
                 const walletTokenMap = new Map();
@@ -675,7 +896,7 @@
                 for (let i = 0; i < tokenAddresses.length; i++) {
                     const tokenAddress = tokenAddresses[i];
                     document.getElementById('loadingText').textContent = 
-                        `Analyzing token ${i + 1}/${tokenAddresses.length}: ${tokenAddress.substring(0, 8)}... (${requestsPerSecond} req/sec)`;
+                        `Analyzing token ${i + 1}/${tokenAddresses.length}: ${tokenAddress.substring(0, 8)}... (${rpcDisplay}, ${requestsPerSecond} req/sec)`;
 
                     const signatures = await getTokenTransactions(tokenAddress, maxTx);
                     totalTransactions += signatures.length;
@@ -737,7 +958,7 @@
                 if (limit <= maxPerRequest) {
                     await waitForRateLimit();
                     
-                    const response = await fetch(RPC_URL, {
+                    const response = await fetch(getRPCUrl(), {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -774,7 +995,7 @@
                         ? [tokenAddress, { limit: batchLimit, before: lastSignature }]
                         : [tokenAddress, { limit: batchLimit }];
                     
-                    const response = await fetch(RPC_URL, {
+                    const response = await fetch(getRPCUrl(), {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -854,7 +1075,7 @@
             try {
                 await waitForRateLimit();
                 
-                const response = await fetch(RPC_URL, {
+                const response = await fetch(getRPCUrl(), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
